@@ -4,7 +4,6 @@ Projeto da disciplina **DevOps & QA** (Engenharia de Computação), desenvolvido
 
 **Integrante do grupo:**
 
-- Caio Menna Ribeiro, RA: 235301
 - Juan Pedro Jerônimo Guilen, RA: 200679.
 - Luan Bruno Domingues de Oliveira, RA: 210200.
 
@@ -76,14 +75,25 @@ Cenários elaborados, derivados da US #1.
 
 ## Arquitetura
 
-Pacotes em `br.com.valueprojects.gamification`:
+Arquitetura modular por domínio. Cada módulo em `br.com.valueprojects.gamification` é dividido em subpacotes por responsabilidade:
 
-- `domain` — regras de negócio puras (`Aluno`, `Contribuicao`, `MesDeContribuicoes`, `Assinatura`, `Curso`), 100% cobertas por testes (fase BLUE do TDD)
-- `entity` — entidades JPA persistidas no banco
+- `domain` — regras de negócio puras (sem Spring/JPA)
+- `vo` — value objects
+- `entity` — entidades JPA
 - `repository` — interfaces `JpaRepository`
 - `service` — orquestra repositório + regras de `domain`
 - `dto` — objetos de requisição/resposta da API
 - `controller` — endpoints REST
+
+Módulos:
+
+- `aluno` — módulo base: `domain/Aluno`, `vo/Curso` (usado por `Aluno.concluirCurso`), `entity`, `repository`, `service`, `controller`, `dto`
+- `curso` — conclusão de cursos (`entity`, `repository`, `service`, `controller`, `dto`); depende de `aluno`
+- `assinatura` — `domain/Assinatura` + camadas de persistência/API; depende de `aluno`
+- `contribuicao` — `domain/Contribuicao`, `domain/MesDeContribuicoes` + camadas de persistência/API (ranking e vencedor); depende de `aluno`
+- `shared` — componentes transversais (`ApiExceptionHandler`)
+
+As classes de regra de negócio pura (`Aluno`, `Assinatura`, `Contribuicao`, `MesDeContribuicoes`) e o value object `Curso` são 100% cobertos por testes (fase BLUE do TDD).
 
 ### Frontend (`frontend/`)
 
@@ -210,24 +220,24 @@ Prints coletados durante o ciclo TDD e a validação dos bancos H2/PostgreSQL.
 
 ### RED — testes de domínio falhando (camada domain)
 
-![Terminal RED](docs/terminal_red.png)
+![Terminal RED](docs/images/terminal_red.png)
 
 ### GREEN — testes passando (camada domain)
 
-![Terminal GREEN](docs/terminal_green.png)
-![Relatório JaCoCo GREEN](docs/jacoco_report_green.png)
+![Terminal GREEN](docs/images/terminal_green.png)
+![Relatório JaCoCo GREEN](docs/images/jacoco_report_green.png)
 
 ### BLUE — refino e cobertura (camada domain)
 
-![Terminal BLUE](docs/terminal_blue.png)
-![Relatório JaCoCo BLUE 1](docs/jacoco_report1_blue.png)
-![Relatório JaCoCo BLUE 2](docs/jacoco_report2_blue.png)
+![Terminal BLUE](docs/images/terminal_blue.png)
+![Relatório JaCoCo BLUE 1](docs/images/jacoco_report1_blue.png)
+![Relatório JaCoCo BLUE 2](docs/images/jacoco_report2_blue.png)
 
 ### Bancos H2 e PostgreSQL
 
-![Console H2](docs/db_h2.png)
-![PostgreSQL via pgAdmin](docs/db_postgres.png)
+![Console H2](docs/images/db_h2.png)
+![PostgreSQL via pgAdmin](docs/images/db_postgres.png)
 
 ### Frontend validando a API
 
-![Frontend Vue](docs/frontend.png)
+![Frontend Vue](docs/images/frontend.png)
