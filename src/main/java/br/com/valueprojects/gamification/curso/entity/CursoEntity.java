@@ -1,6 +1,5 @@
 package br.com.valueprojects.gamification.curso.entity;
 
-import br.com.valueprojects.gamification.aluno.vo.Curso;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;

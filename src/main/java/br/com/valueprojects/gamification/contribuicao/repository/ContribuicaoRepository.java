@@ -1,6 +1,5 @@
 package br.com.valueprojects.gamification.contribuicao.repository;
 
-import br.com.valueprojects.gamification.contribuicao.domain.MesDeContribuicoes;
 import br.com.valueprojects.gamification.contribuicao.entity.ContribuicaoEntity;
 import br.com.valueprojects.gamification.contribuicao.entity.MesDeContribuicoesEntity;
 import java.util.List;

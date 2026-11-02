@@ -4,7 +4,6 @@ import br.com.valueprojects.gamification.aluno.domain.Aluno;
 import br.com.valueprojects.gamification.aluno.dto.AlunoResponse;
 import br.com.valueprojects.gamification.aluno.entity.AlunoEntity;
 import br.com.valueprojects.gamification.aluno.service.AlunoService;
-import br.com.valueprojects.gamification.aluno.vo.Curso;
 import br.com.valueprojects.gamification.curso.entity.CursoEntity;
 import br.com.valueprojects.gamification.curso.repository.CursoRepository;
 import br.com.valueprojects.gamification.curso.service.CursoService;

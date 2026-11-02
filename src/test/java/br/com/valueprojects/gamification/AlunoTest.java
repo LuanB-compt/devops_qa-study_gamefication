@@ -6,7 +6,6 @@ import br.com.valueprojects.gamification.aluno.entity.AlunoEntity;
 import br.com.valueprojects.gamification.aluno.repository.AlunoRepository;
 import br.com.valueprojects.gamification.aluno.service.AlunoService;
 import br.com.valueprojects.gamification.aluno.vo.Curso;
-import br.com.valueprojects.gamification.contribuicao.domain.MesDeContribuicoes;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;

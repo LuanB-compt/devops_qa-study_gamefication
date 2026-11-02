@@ -1,6 +1,5 @@
 package br.com.valueprojects.gamification.aluno.service;
 
-import br.com.valueprojects.gamification.aluno.domain.Aluno;
 import br.com.valueprojects.gamification.aluno.dto.AlunoResponse;
 import br.com.valueprojects.gamification.aluno.entity.AlunoEntity;
 import br.com.valueprojects.gamification.aluno.repository.AlunoRepository;

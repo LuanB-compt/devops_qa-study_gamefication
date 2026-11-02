@@ -1,8 +1,6 @@
 package br.com.valueprojects.gamification.contribuicao.entity;
 
 import br.com.valueprojects.gamification.aluno.entity.AlunoEntity;
-import br.com.valueprojects.gamification.contribuicao.domain.Contribuicao;
-import br.com.valueprojects.gamification.contribuicao.domain.MesDeContribuicoes;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;

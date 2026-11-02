@@ -1,7 +1,6 @@
 package br.com.valueprojects.gamification.assinatura.entity;
 
 import br.com.valueprojects.gamification.aluno.entity.AlunoEntity;
-import br.com.valueprojects.gamification.assinatura.domain.Assinatura;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
