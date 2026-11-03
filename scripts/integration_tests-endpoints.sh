@@ -1,40 +1,42 @@
 #!/bin/bash
-# Testes dos endpoints REST da aplicação gamification (DEV | Spring Boot + H2 em memória)
+# Smoke test dos endpoints REST da aplicacao gamification.
+# Uso: scripts/integration_tests-endpoints.sh [BASE_URL]   (padrao: http://localhost:8080)
+# Sai com codigo != 0 se qualquer endpoint responder fora de 2xx.
 
-set -x
+BASE_URL="${1:-${BASE_URL:-http://localhost:8080}}"
+FAILED=0
 
-echo "== GET /api/alunos (vazio) =="
-curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost:8080/api/alunos
-curl -s http://localhost:8080/api/alunos
-echo
+# req <descricao> <metodo> <caminho> [corpo-json]
+req() {
+  local desc="$1" method="$2" path="$3" body="${4:-}"
+  local args=(-s -o /tmp/smoke_body.$$ -w "%{http_code}" -X "$method" "$BASE_URL$path")
+  [ -n "$body" ] && args+=(-H "Content-Type: application/json" -d "$body")
 
-echo "== POST /api/assinaturas/{aluno} (cria aluno + assinatura) =="
-curl -s -w "\nHTTP %{http_code}\n" -X POST http://localhost:8080/api/assinaturas/Luan
-echo
+  local code
+  code=$(curl "${args[@]}")
+  echo "== $desc: $method $path -> HTTP $code"
+  cat /tmp/smoke_body.$$ 2>/dev/null; echo
 
-echo "== GET /api/alunos (agora com 1) =="
-curl -s http://localhost:8080/api/alunos
-echo
+  if [[ ! "$code" =~ ^2 ]]; then
+    echo "FALHA: esperado 2xx, recebido $code"
+    FAILED=1
+  fi
+}
+trap 'rm -f /tmp/smoke_body.$$' EXIT
 
-echo "== GET /api/alunos/Luan =="
-curl -s -w "\nHTTP %{http_code}\n" http://localhost:8080/api/alunos/Luan
-echo
+req "Lista alunos"               GET  /api/alunos
+req "Cria assinatura (e aluno)"  POST /api/assinaturas/Luan
+req "Consulta aluno"             GET  /api/alunos/Luan
+req "Consulta assinatura"        GET  /api/assinaturas/Luan
+req "Registra pagamento"         POST /api/assinaturas/Luan/pagamento
+req "Registra contribuicao"      POST /api/meses/set-2026/contribuicoes '{"alunoNome":"Luan","peso":1.0}'
+req "Consulta ranking"           GET  /api/meses/set-2026/ranking
+req "Conclui curso (media 8.5)"  POST /api/alunos/Luan/cursos '{"cursoNome":"DevOps","media":8.5}'
+req "Actuator health"            GET  /actuator/health
+req "Actuator prometheus"        GET  /actuator/prometheus
 
-echo "== POST /api/meses/set-2026/contribuicoes =="
-curl -s -w "\nHTTP %{http_code}\n" -X POST http://localhost:8080/api/meses/set-2026/contribuicoes \
-  -H "Content-Type: application/json" \
-  -d '{"alunoNome":"Luan","peso":1.0}'
-echo
-
-echo "== GET /api/meses/set-2026/ranking =="
-curl -s -w "\nHTTP %{http_code}\n" http://localhost:8080/api/meses/set-2026/ranking
-echo
-
-echo "== POST /api/alunos/Luan/cursos =="
-curl -s -w "\nHTTP %{http_code}\n" -X POST http://localhost:8080/api/alunos/Luan/cursos \
-  -H "Content-Type: application/json" \
-  -d '{"cursoNome":"DevOps","media":8.5}'
-echo
-
-echo "== GET /h2-console (verifica se serve HTML) =="
-curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost:8080/h2-console
+if [ "$FAILED" -ne 0 ]; then
+  echo "Smoke test FALHOU."
+  exit 1
+fi
+echo "Smoke test OK."

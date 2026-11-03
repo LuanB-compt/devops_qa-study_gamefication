@@ -1,0 +1,80 @@
+name: gamification-dev
+
+services:
+  postgres:
+    image: postgres:16
+    hostname: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: gamificationdb_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gamificationdb_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - app_net
+
+  pgadmin:
+    image: dpage/pgadmin4:9
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_dev:/var/lib/pgadmin
+    networks:
+      - app_net
+
+  app:
+    build: .
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_URL: jdbc:postgresql://postgres:5432/gamificationdb_dev
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    ports:
+      - "8080:8080"
+    networks:
+      - app_net
+
+  frontend:
+    build: ./frontend
+    restart: always
+    depends_on:
+      - app
+    environment:
+      VITE_API_PROXY_TARGET: http://app:8080
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules_dev:/app/node_modules
+    networks:
+      - app_net
+
+volumes:
+  pg_dev:
+  pgadmin_dev:
+  frontend_node_modules_dev:
+
+networks:
+  app_net:
+    name: gamification-dev_net

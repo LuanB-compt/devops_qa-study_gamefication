@@ -1,17 +1,20 @@
-# Etapa 1: build da aplicacao
+# Etapa 1: build da aplicacao (dependencias em camada propria para cache)
 FROM maven:3.9.9-eclipse-temurin-17 AS build
-WORKDIR /app
+WORKDIR /workspace
 
 COPY pom.xml .
-COPY src ./src
-RUN mvn clean package -DskipTests
+RUN mvn -B -q -DskipTests dependency:go-offline
 
-# Etapa 2: imagem final enxuta
-FROM eclipse-temurin:17-jre
+COPY src ./src
+RUN mvn -B -DskipTests clean package
+
+# Etapa 2: imagem final enxuta, usuario nao-root
+FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-COPY --from=build /app/target/*.jar app.jar
+RUN addgroup -S app && adduser -S app -G app
+COPY --from=build /workspace/target/gamification-*.jar /app/app.jar
 
+USER app
 EXPOSE 8080
-
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
