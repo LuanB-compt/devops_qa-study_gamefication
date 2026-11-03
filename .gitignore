@@ -28,3 +28,4 @@ target/
 node_modules/
 frontend/.vite/
 frontend/dist/
+.env

@@ -3,3 +3,5 @@ target
 .idea
 .vscode
 *.iml
+node_modules
+frontend/node_modules
