@@ -67,9 +67,12 @@ Cenários elaborados, derivados da US #1.
 - **Maven** (build e gerenciamento de dependências)
 - **JUnit 5** (Jupiter, via `spring-boot-starter-test`) — testes unitários de domínio e de service, escritos no estilo Given/When/Then dos cenários BDD
 - **JaCoCo 0.8.12** — cobertura de testes (100% nas classes de `domain` e 79% de cobertura total)
-- **H2** — banco em memória, perfil de apoio didático/local
-- **PostgreSQL 16** — banco relacional, perfil padrão de execução
-- **Docker / Docker Compose** — containerização da aplicação e orquestração com PostgreSQL e pgAdmin
+- **H2** — dependência runtime mantida no `pom.xml` (sem uso nos perfis atuais)
+- **PostgreSQL 16** — banco relacional de todos os perfis (dev, homol, prod)
+- **Docker / Docker Compose** — containerização da aplicação e orquestração (3 ambientes) com PostgreSQL, pgAdmin, Prometheus e Grafana
+- **Spring Actuator + Micrometer/Prometheus** — health check e métricas
+- **PMD 3.26.0** — análise estática (`mvn pmd:pmd`, não bloqueante)
+- **Jenkins (container)** — servidor de CI/CD
 - **Vue 3 + Vite** — frontend simples, sem lógica de negócio própria, usado apenas para validar manualmente os endpoints REST via navegador
 - **Node.js / NPM** — build e execução do frontend (local ou containerizado via Docker)
 
@@ -132,30 +135,35 @@ mvn verify
 
 O relatório de cobertura fica em `target/site/jacoco/index.html` (abrir no navegador).
 
-## Como rodar localmente (sem Docker)
+## Ambientes e perfis
 
-### Opção A — perfil padrão (H2, em memória)
+O projeto tem 3 ambientes, cada um com um perfil Spring (`application-<perfil>.properties`) e um arquivo Docker Compose próprio. O perfil é escolhido por `SPRING_PROFILES_ACTIVE` (padrão: `dev`).
+
+| Ambiente | Perfil  | Compose                   | Banco                  | App    | Frontend | Postgres | pgAdmin | Prometheus | Grafana |
+|----------|---------|---------------------------|------------------------|--------|----------|----------|---------|------------|---------|
+| dev      | `dev`   | `docker-compose.dev.yml`  | `gamificationdb_dev`   | 8080   | 5173     | 5432     | 5050    | —          | —       |
+| homol    | `homol` | `docker-compose.homol.yml`| `gamificationdb_homol` | 8081   | 5174     | 5433     | 5051    | 9091       | 3001    |
+| prod     | `prod`  | `docker-compose.prod.yml` | `gamificationdb_prod`  | 8082   | 5175     | —        | —       | 9092       | 3002    |
+
+- **homol** é o ambiente usado pelo pipeline Jenkins.
+- **prod** exige `DB_PASSWORD` no ambiente (sem valor padrão) e usa `ddl-auto=validate`: o schema precisa existir antes de subir a aplicação.
+- Actuator exposto em `/actuator/health`, `/actuator/info` e `/actuator/prometheus`.
+
+## Como rodar localmente (sem Docker para a app)
+
+Os perfis usam PostgreSQL. Suba apenas o banco do ambiente dev e rode a aplicação:
 
 ```bash
+docker compose -f docker-compose.dev.yml up -d postgres
 mvn spring-boot:run
 ```
 
 - Aplicação: `http://localhost:8080`
-- Console H2: `http://localhost:8080/h2-console`
-  - JDBC URL: `jdbc:h2:mem:gamificationdb`
-  - Usuário: `sa` / Senha: (em branco)
-
-### Opção B — perfil PostgreSQL (banco local ou via Docker standalone)
-
-```bash
-mvn spring-boot:run -Dspring-boot.run.profiles=postgres
-```
-
-Variáveis de ambiente aceitas (com valores padrão): `DB_HOST` (`localhost`), `DB_PORT` (`5432`), `DB_NAME` (`gamificationdb`), `DB_USER` (`postgres`), `DB_PASSWORD` (`postgres`).
+- Variáveis aceitas pelo perfil `dev` (com padrão): `DB_URL` (`jdbc:postgresql://localhost:5432/gamificationdb_dev`), `DB_USER` (`postgres`), `DB_PASSWORD` (`postgres`).
 
 ### Frontend (sem Docker)
 
-Com o backend já rodando em `http://localhost:8080` (Opção A ou B acima), em outro terminal:
+Com o backend rodando em `http://localhost:8080`, em outro terminal:
 
 ```bash
 cd frontend
@@ -168,50 +176,51 @@ npm run dev
 
 ## Como rodar via Docker Compose
 
-Na raiz do projeto:
-
 ```bash
-docker compose up --build
+# dev
+docker compose -f docker-compose.dev.yml up --build
+
+# homol
+docker compose -f docker-compose.homol.yml up -d --build
+
+# prod (senha obrigatória)
+DB_PASSWORD=<senha> docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Isso sobe 4 serviços:
+O ambiente dev sobe 4 serviços: **app** (`:8080`), **postgres** (`:5432`), **pgadmin** (`:5050`, login `admin@admin.com` / `admin`) e **frontend** Vue (`:5173`, `npm run dev` no container, código montado como volume com hot reload). Homol e prod adicionam **prometheus** e **grafana** (login `admin` / `admin`); prod não tem pgAdmin.
 
-- **app** — API Spring Boot em `http://localhost:8080` (perfil `postgres` ativo)
-- **postgres** — PostgreSQL 16 em `localhost:5432`
-- **pgadmin** — pgAdmin em `http://localhost:5050`
-- **frontend** — SPA Vue em `http://localhost:5173`, rodando com Node/NPM (`npm run dev` dentro do container), usada para validar manualmente os endpoints da API
+Credenciais do PostgreSQL em dev/homol: usuário `postgres`, senha `postgres`. No pgAdmin, use host `postgres` (nome do serviço), porta `5432`.
 
-### Frontend (Docker Compose)
-
-- URL: `http://localhost:5173`
-- Container criado a partir de `frontend/Dockerfile` (imagem `node:20-alpine`, `npm ci` + `npm run dev -- --host 0.0.0.0`)
-- As chamadas para `/api` são redirecionadas pelo proxy do Vite para o serviço `app` (via variável de ambiente `VITE_API_PROXY_TARGET=http://app:8080`, configurada no `docker-compose.yml`)
-- O código-fonte de `frontend/` é montado como volume no container, então alterações locais recarregam automaticamente (hot reload do Vite)
-
-### Dados do PostgreSQL (Docker Compose)
-
-- Banco: `gamificationdb`
-- Usuário: `postgres`
-- Senha: `postgres`
-- Porta: `5432`
-
-### Acesso ao pgAdmin
-
-- URL: `http://localhost:5050`
-- Login: `admin@admin.com` / Senha: `admin`
-
-Ao cadastrar o servidor no pgAdmin, use:
-
-- Host: `postgres` (nome do serviço no Compose — não usar `localhost`)
-- Port: `5432`
-- Maintenance database: `gamificationdb`
-- Username: `postgres`
-- Password: `postgres`
-
-Para encerrar e remover os volumes:
+Para encerrar e remover os volumes de um ambiente:
 
 ```bash
-docker compose down -v
+docker compose -f docker-compose.dev.yml down -v
+```
+
+## Jenkins (container)
+
+```bash
+docker compose -f docker-compose.jenkins.yml up -d --build
+docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+- Jenkins: `http://localhost:8180` (agente na porta 50000)
+- A imagem (`jenkins/Dockerfile`) inclui docker-cli + compose plugin, Maven, Node 20 e as libs do Cypress; os plugins estão em `jenkins/plugins.txt`.
+- O container usa o socket Docker do host (`/var/run/docker.sock`) para subir o ambiente homol.
+- O repositório é montado em `/repo` (somente leitura) e o compose libera checkout de repositório local (`ALLOW_LOCAL_CHECKOUT`), para o job de estudo.
+
+### CI/CD com Jenkins
+
+1. Suba o Jenkins (comando acima), abra `http://localhost:8180`, informe a senha inicial, instale os plugins sugeridos e crie o usuário administrador.
+2. Crie um job **Pipeline** com *Pipeline script from SCM* (Git, `Jenkinsfile` na raiz) apontando para o repositório do projeto e execute **Build Now**.
+3. Stages: Checkout → JUnit + JaCoCo → PMD → Package → Build dos containers → Deploy HOMOL → Health check → Smoke test → Observabilidade. JaCoCo e PMD ficam arquivados no build.
+4. Ambiente HOMOL após o deploy: API `http://localhost:8081`, frontend `http://localhost:5174`, Prometheus `http://localhost:9091`, Grafana `http://localhost:3001` (admin/admin), pgAdmin `http://localhost:5051`.
+
+### Validação automatizada
+
+```bash
+bash scripts/validate_infra.sh        # compose, properties, Jenkins e HOMOL (--down para limpar)
+JENKINS_USER=admin JENKINS_TOKEN=<senha-ou-token> bash scripts/validate_jenkinsfile.sh
 ```
 
 ## Evidências
