@@ -1,0 +1,85 @@
+# Ambiente de producao - sem pgadmin; senha obrigatoria via ambiente:
+#   DB_PASSWORD=... docker compose -f docker-compose.prod.yml up -d --build
+# Sem deploy automatico no Jenkins (apenas build / config -q).
+name: gamification-prod
+
+services:
+  postgres:
+    image: postgres:16
+    hostname: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gamificationdb_prod
+      POSTGRES_USER: ${DB_USER:-gamification}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no ambiente}
+    volumes:
+      - pg_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d gamificationdb_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - app_net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${DOCKER_IMAGE:-gamification-app}:${IMAGE_TAG:-prod}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: jdbc:postgresql://postgres:5432/gamificationdb_prod
+      DB_USER: ${DB_USER:-gamification}
+      DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD no ambiente}
+    ports:
+      - "8082:8080"
+    networks:
+      - app_net
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      VITE_API_PROXY_TARGET: http://app:8080
+    ports:
+      - "5175:5173"
+    networks:
+      - app_net
+
+  prometheus:
+    build: ./prometheus
+    restart: unless-stopped
+    ports:
+      - "9092:9090"
+    depends_on:
+      - app
+    networks:
+      - app_net
+
+  grafana:
+    build: ./grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3002:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - app_net
+
+volumes:
+  pg_prod:
+
+networks:
+  app_net:
+    name: gamification-prod_net

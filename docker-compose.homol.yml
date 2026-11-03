@@ -1,0 +1,94 @@
+# Ambiente de homologacao - usado pelo pipeline Jenkins.
+# Portas do host distintas de dev/prod para permitir ambientes simultaneos.
+name: gamification-homol
+
+services:
+  postgres:
+    image: postgres:16
+    hostname: postgres
+    environment:
+      POSTGRES_DB: gamificationdb_homol
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_homol:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d gamificationdb_homol"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - app_net
+
+  pgadmin:
+    image: dpage/pgadmin4:9
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5051:80"
+    networks:
+      - app_net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${DOCKER_IMAGE:-gamification-app}:${IMAGE_TAG:-local}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: homol
+      DB_URL: jdbc:postgresql://postgres:5432/gamificationdb_homol
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    ports:
+      - "8081:8080"
+    networks:
+      - app_net
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - app
+    environment:
+      VITE_API_PROXY_TARGET: http://app:8080
+    ports:
+      - "5174:5173"
+    networks:
+      - app_net
+
+  prometheus:
+    build: ./prometheus
+    ports:
+      - "9091:9090"
+    depends_on:
+      - app
+    networks:
+      - app_net
+
+  grafana:
+    build: ./grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - app_net
+
+volumes:
+  pg_homol:
+
+networks:
+  app_net:
+    name: gamification-homol_net
