@@ -205,9 +205,9 @@ docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
 - Jenkins: `http://localhost:8180` (agente na porta 50000)
-- A imagem (`jenkins/Dockerfile`) inclui docker-cli + compose plugin, Maven, Node 20 e as libs do Cypress; os plugins estão em `jenkins/plugins.txt`.
+- A imagem (`jenkins/Dockerfile`) inclui docker-cli + compose plugin, Maven e curl; os plugins estão em `jenkins/plugins.txt`.
 - O container usa o socket Docker do host (`/var/run/docker.sock`) para subir o ambiente homol.
-- O repositório é montado em `/repo` (somente leitura) e o compose libera checkout de repositório local (`ALLOW_LOCAL_CHECKOUT`), para o job de estudo.
+- O job faz checkout direto do GitHub (branch `dev`); o Cypress/E2E está fora da pipeline (melhoria futura).
 
 ### CI/CD com Jenkins
 
@@ -215,13 +215,6 @@ docker exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
 2. Crie um job **Pipeline** com *Pipeline script from SCM* (Git, `Jenkinsfile` na raiz) apontando para o repositório do projeto e execute **Build Now**.
 3. Stages: Checkout → JUnit + JaCoCo → PMD → Package → Build dos containers → Deploy HOMOL → Health check → Smoke test → Observabilidade. JaCoCo e PMD ficam arquivados no build.
 4. Ambiente HOMOL após o deploy: API `http://localhost:8081`, frontend `http://localhost:5174`, Prometheus `http://localhost:9091`, Grafana `http://localhost:3001` (admin/admin), pgAdmin `http://localhost:5051`.
-
-### Validação automatizada
-
-```bash
-bash scripts/validate_infra.sh        # compose, properties, Jenkins e HOMOL (--down para limpar)
-JENKINS_USER=admin JENKINS_TOKEN=<senha-ou-token> bash scripts/validate_jenkinsfile.sh
-```
 
 ## Evidências
 
