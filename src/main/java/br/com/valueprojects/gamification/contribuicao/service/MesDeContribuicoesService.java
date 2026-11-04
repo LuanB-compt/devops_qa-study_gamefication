@@ -55,6 +55,11 @@ public class MesDeContribuicoesService {
     @Transactional
     public boolean registrarContribuicao(String mesDescricao, String alunoNome, double peso) {
         MesDeContribuicoesEntity mesEntity = buscarOuCriarMes(mesDescricao);
+        // Mês apurado é imutável: aceitar contribuição aqui deixaria o vencedor já
+        // gravado desatualizado em relação ao ranking. Reaproveita o 409 do controller.
+        if (mesEntity.isEncerrado()) {
+            return false;
+        }
         AlunoEntity alunoEntity = alunoService.buscarOuCriar(alunoNome);
 
         MesDeContribuicoes mesDominio = carregarDominio(mesEntity);
@@ -83,20 +88,38 @@ public class MesDeContribuicoesService {
      * ele. O incremento de cursosConcluidos é o delta calculado pelo próprio
      * domínio (via {@link Aluno#ganharCurso()}), aplicado sobre o estado já
      * persistido do aluno.
+     *
+     * <p><b>Idempotente:</b> a apuração acontece uma única vez por mês. Chamadas
+     * seguintes não sorteiam nem concedem curso de novo; devolvem o vencedor
+     * que ficou gravado (e o total atual de cursos dele). O lock pessimista na
+     * busca serializa chamadas concorrentes.
      */
     @Transactional
     public VencedorResponse encerrarMes(String mesDescricao) {
-        MesDeContribuicoesEntity mesEntity = buscarMesOuFalhar(mesDescricao);
-        MesDeContribuicoes mesDominio = carregarDominio(mesEntity);
+        MesDeContribuicoesEntity mesEntity = mesRepository.findByDescricaoParaEncerramento(mesDescricao)
+                .orElseThrow(() -> new EntityNotFoundException("Mês de contribuições não encontrado: " + mesDescricao));
 
-        Aluno vencedorDominio = mesDominio.encerrar();
+        if (mesEntity.isEncerrado()) {
+            return respostaDoVencedor(mesEntity);
+        }
+
+        Aluno vencedorDominio = carregarDominio(mesEntity).encerrar();
         if (vencedorDominio == null) {
-            return new VencedorResponse(mesDescricao, null, 0);
+            mesEntity.encerrarCom(null);
+            return respostaDoVencedor(mesEntity);
         }
 
         AlunoEntity vencedorEntity = alunoService.buscarPorNome(vencedorDominio.getNome());
         vencedorEntity.setCursosConcluidos(vencedorEntity.getCursosConcluidos() + vencedorDominio.getCursosConcluidos());
-        return new VencedorResponse(mesDescricao, vencedorEntity.getNome(), vencedorEntity.getCursosConcluidos());
+        mesEntity.encerrarCom(vencedorEntity);
+        return respostaDoVencedor(mesEntity);
+    }
+
+    private VencedorResponse respostaDoVencedor(MesDeContribuicoesEntity mesEntity) {
+        AlunoEntity vencedor = mesEntity.getVencedor();
+        return vencedor == null
+                ? new VencedorResponse(mesEntity.getDescricao(), null, 0)
+                : new VencedorResponse(mesEntity.getDescricao(), vencedor.getNome(), vencedor.getCursosConcluidos());
     }
 
     /**

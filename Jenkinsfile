@@ -23,6 +23,16 @@ pipeline {
             }
         }
 
+        // Fitness function do ASR-1 (Manutenibilidade): ciclo entre módulos ou acesso a
+        // Entity/Repository de outro módulo reprova aqui, antes dos testes mais lentos.
+        // Os mesmos testes rodam de novo no `verify` abaixo (custo de poucos segundos);
+        // o estágio existe para a falha de arquitetura aparecer isolada no Stage View.
+        stage('2a - CI - Regras de Arquitetura (ArchUnit)') {
+            steps {
+                sh 'mvn -B test -Dtest=ArquiteturaTest'
+            }
+        }
+
         stage('2 - CI - Testes JUnit + JaCoCo') {
             steps {
                 sh 'mvn -B clean verify'

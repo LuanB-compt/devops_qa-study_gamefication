@@ -96,6 +96,10 @@ Módulos:
 - `contribuicao` — `domain/Contribuicao`, `domain/MesDeContribuicoes` + camadas de persistência/API (ranking e vencedor); depende de `aluno`
 - `shared` — componentes transversais (`ApiExceptionHandler`)
 
+**Regras de arquitetura verificadas no build** (`ArquiteturaTest`, ArchUnit; estágio 2a do Jenkins): módulos sem ciclos; `domain` sem Spring/JPA; `entity`/`repository` de um módulo não são acessados por outro. Exceção conhecida e documentada no teste: `AlunoEntity` (dívida técnica).
+
+> Banco com `ddl-auto=validate` (prod): antes do deploy, criar em `mes_de_contribuicoes` as colunas `encerrado boolean not null default false` e `vencedor_id bigint null references aluno(id)`.
+
 As classes de regra de negócio pura (`Aluno`, `Assinatura`, `Contribuicao`, `MesDeContribuicoes`) e o value object `Curso` são 100% cobertos por testes (fase BLUE do TDD).
 
 ### Frontend (`frontend/`)
@@ -121,7 +125,7 @@ SPA Vue 3 + Vite simples, criada apenas para testar e validar manualmente as fun
 | POST   | `/api/assinaturas/{alunoNome}/encerrar`        | Encerra/cancela a assinatura                 |
 | POST   | `/api/meses/{descricao}/contribuicoes`         | Registra contribuição do aluno no mês        |
 | GET    | `/api/meses/{descricao}/ranking`               | Consulta ranking de contribuições do mês     |
-| POST   | `/api/meses/{descricao}/encerrar`              | Apura o vencedor do mês (com sorteio em empate) |
+| POST   | `/api/meses/{descricao}/encerrar`              | Apura o vencedor do mês (com sorteio em empate). Idempotente: o mês é apurado uma única vez; chamadas seguintes devolvem o mesmo vencedor sem novo curso. Mês encerrado não aceita novas contribuições (409) |
 
 ## Como rodar os testes com cobertura
 
