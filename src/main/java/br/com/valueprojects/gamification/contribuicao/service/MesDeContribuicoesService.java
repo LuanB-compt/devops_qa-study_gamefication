@@ -1,119 +1,84 @@
 package br.com.valueprojects.gamification.contribuicao.service;
 
 import br.com.valueprojects.gamification.aluno.domain.Aluno;
-import br.com.valueprojects.gamification.aluno.entity.AlunoEntity;
-import br.com.valueprojects.gamification.aluno.service.AlunoService;
+import br.com.valueprojects.gamification.aluno.service.AlunoPort;
 import br.com.valueprojects.gamification.contribuicao.domain.Contribuicao;
 import br.com.valueprojects.gamification.contribuicao.domain.MesDeContribuicoes;
 import br.com.valueprojects.gamification.contribuicao.dto.ContribuicaoResponse;
 import br.com.valueprojects.gamification.contribuicao.dto.RankingMesResponse;
 import br.com.valueprojects.gamification.contribuicao.dto.VencedorResponse;
-import br.com.valueprojects.gamification.contribuicao.entity.ContribuicaoEntity;
-import br.com.valueprojects.gamification.contribuicao.entity.MesDeContribuicoesEntity;
-import br.com.valueprojects.gamification.contribuicao.repository.ContribuicaoRepository;
-import br.com.valueprojects.gamification.contribuicao.repository.MesDeContribuicoesRepository;
+import br.com.valueprojects.gamification.shared.RecursoNaoEncontradoException;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import jakarta.persistence.EntityNotFoundException;
-
 /**
- * Orquestra a persistência de {@link MesDeContribuicoesEntity} e
- * {@link ContribuicaoEntity}, reaproveitando a lógica já testada de
- * {@link MesDeContribuicoes} (cenários 1, 3 e 4 do bdd.md) — a decisão de
- * ignorar contribuição duplicada, apurar o vencedor (com sorteio em caso de
- * empate) e conceder o curso são todas feitas pelo objeto de domínio, nunca
- * reimplementadas aqui.
+ * Application service (casos de uso) do mês de contribuições. NÃO contém regra
+ * de negócio: busca o agregado pela porta, chama o método de negócio do domínio
+ * e manda salvar. Ranking, desempate, imutabilidade do mês encerrado e
+ * idempotência da apuração vivem em {@link MesDeContribuicoes}.
+ *
+ * <p>Também não conhece JPA: depende só de portas ({@link MesDeContribuicoesPort},
+ * {@link AlunoPort}). O ArchUnit reprova o build se essa fronteira for violada.
  */
 @Service
 public class MesDeContribuicoesService {
 
-    private final MesDeContribuicoesRepository mesRepository;
-    private final ContribuicaoRepository contribuicaoRepository;
-    private final AlunoService alunoService;
+    private final MesDeContribuicoesPort mesPort;
+    private final AlunoPort alunoPort;
 
-    public MesDeContribuicoesService(MesDeContribuicoesRepository mesRepository,
-            ContribuicaoRepository contribuicaoRepository, AlunoService alunoService) {
-        this.mesRepository = mesRepository;
-        this.contribuicaoRepository = contribuicaoRepository;
-        this.alunoService = alunoService;
+    public MesDeContribuicoesService(MesDeContribuicoesPort mesPort, AlunoPort alunoPort) {
+        this.mesPort = mesPort;
+        this.alunoPort = alunoPort;
     }
 
-    public MesDeContribuicoesEntity buscarOuCriarMes(String descricao) {
-        return mesRepository.findByDescricao(descricao)
-                .orElseGet(() -> mesRepository.save(new MesDeContribuicoesEntity(descricao)));
+    public MesDeContribuicoes buscarOuCriarMes(String descricao) {
+        return mesPort.buscarOuCriar(descricao);
     }
 
-    /**
-     * Cenário 4: reaproveita {@link MesDeContribuicoes#registrar(Contribuicao)}
-     * para decidir se a nova contribuição deve ser ignorada (mesmo aluno da
-     * última contribuição registrada no mês). Só persiste quando o domínio
-     * de fato aceitou o registro.
-     */
+    /** Cenário 4. @return {@code false} se o domínio recusou (consecutiva do mesmo aluno ou mês encerrado). */
     @Transactional
     public boolean registrarContribuicao(String mesDescricao, String alunoNome, double peso) {
-        MesDeContribuicoesEntity mesEntity = buscarOuCriarMes(mesDescricao);
-        AlunoEntity alunoEntity = alunoService.buscarOuCriar(alunoNome);
-
-        MesDeContribuicoes mesDominio = carregarDominio(mesEntity);
-        int tamanhoAntes = mesDominio.getContribuicoes().size();
-
-        mesDominio.registrar(new Contribuicao(new Aluno(alunoNome), peso));
-        boolean registrada = mesDominio.getContribuicoes().size() > tamanhoAntes;
-
+        MesDeContribuicoes mes = mesPort.buscarOuCriar(mesDescricao);
+        if (mes.isEncerrado()) {
+            // Evita criar aluno por uma contribuição que o domínio vai recusar de qualquer forma.
+            return false;
+        }
+        Aluno aluno = alunoPort.obterOuCriar(alunoNome);
+        boolean registrada = mes.registrar(new Contribuicao(aluno, peso));
         if (registrada) {
-            contribuicaoRepository.save(new ContribuicaoEntity(alunoEntity, mesEntity, peso));
+            mesPort.salvar(mes);
         }
         return registrada;
     }
 
+    /** Ranking = soma dos pesos por aluno, do maior para o menor. */
     public RankingMesResponse consultarRanking(String mesDescricao) {
-        MesDeContribuicoesEntity mesEntity = buscarMesOuFalhar(mesDescricao);
-        List<ContribuicaoResponse> itens = contribuicaoRepository.findByMesOrderByIdAsc(mesEntity).stream()
-                .map(c -> new ContribuicaoResponse(c.getAluno().getNome(), c.getPeso()))
+        MesDeContribuicoes mes = mesPort.buscarPorDescricao(mesDescricao)
+                .orElseThrow(() -> mesNaoEncontrado(mesDescricao));
+        List<ContribuicaoResponse> itens = mes.ranking().stream()
+                .map(p -> new ContribuicaoResponse(p.aluno().getNome(), p.pontos()))
                 .toList();
         return new RankingMesResponse(mesDescricao, itens);
     }
 
-    /**
-     * Cenários 1 e 3: reaproveita {@link MesDeContribuicoes#encerrar()} para
-     * apurar o vencedor (com sorteio em caso de empate) e conceder o curso a
-     * ele. O incremento de cursosConcluidos é o delta calculado pelo próprio
-     * domínio (via {@link Aluno#ganharCurso()}), aplicado sobre o estado já
-     * persistido do aluno.
-     */
+    /** Cenários 1 e 3. Idempotente: a regra está no domínio; aqui só se evita regravar. */
     @Transactional
     public VencedorResponse encerrarMes(String mesDescricao) {
-        MesDeContribuicoesEntity mesEntity = buscarMesOuFalhar(mesDescricao);
-        MesDeContribuicoes mesDominio = carregarDominio(mesEntity);
-
-        Aluno vencedorDominio = mesDominio.encerrar();
-        if (vencedorDominio == null) {
-            return new VencedorResponse(mesDescricao, null, 0);
+        MesDeContribuicoes mes = mesPort.buscarParaEncerramento(mesDescricao)
+                .orElseThrow(() -> mesNaoEncontrado(mesDescricao));
+        boolean jaEncerrado = mes.isEncerrado();
+        Aluno vencedor = mes.encerrar();
+        if (!jaEncerrado) {
+            mesPort.salvar(mes);
         }
-
-        AlunoEntity vencedorEntity = alunoService.buscarPorNome(vencedorDominio.getNome());
-        vencedorEntity.setCursosConcluidos(vencedorEntity.getCursosConcluidos() + vencedorDominio.getCursosConcluidos());
-        return new VencedorResponse(mesDescricao, vencedorEntity.getNome(), vencedorEntity.getCursosConcluidos());
+        return vencedor == null
+                ? new VencedorResponse(mes.getDescricao(), null, 0)
+                : new VencedorResponse(mes.getDescricao(), vencedor.getNome(), vencedor.getCursosConcluidos());
     }
 
-    /**
-     * Reconstrói o {@link MesDeContribuicoes} do domínio a partir das
-     * contribuições já persistidas, na mesma ordem em que foram registradas.
-     */
-    private MesDeContribuicoes carregarDominio(MesDeContribuicoesEntity mesEntity) {
-        MesDeContribuicoes mesDominio = new MesDeContribuicoes(mesEntity.getDescricao());
-        for (ContribuicaoEntity contribuicaoEntity : contribuicaoRepository.findByMesOrderByIdAsc(mesEntity)) {
-            Aluno alunoDominio = new Aluno(contribuicaoEntity.getAluno().getNome());
-            mesDominio.registrar(new Contribuicao(alunoDominio, contribuicaoEntity.getPeso()));
-        }
-        return mesDominio;
-    }
-
-    private MesDeContribuicoesEntity buscarMesOuFalhar(String descricao) {
-        return mesRepository.findByDescricao(descricao)
-                .orElseThrow(() -> new EntityNotFoundException("Mês de contribuições não encontrado: " + descricao));
+    private RecursoNaoEncontradoException mesNaoEncontrado(String descricao) {
+        return new RecursoNaoEncontradoException("Mês de contribuições não encontrado: " + descricao);
     }
 }

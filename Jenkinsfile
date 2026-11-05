@@ -23,6 +23,26 @@ pipeline {
             }
         }
 
+        // Fitness function do ASR-1 (Manutenibilidade): ciclo entre módulos ou acesso a
+        // Entity/Repository de outro módulo reprova aqui, antes dos testes mais lentos.
+        // Os mesmos testes rodam de novo no `verify` abaixo (custo de poucos segundos);
+        // o estágio existe para a falha de arquitetura aparecer isolada no Stage View.
+        stage('2a - CI - Regras de Arquitetura (ArchUnit)') {
+            steps {
+                sh 'mvn -B test -Dtest=ArquiteturaTest'
+            }
+        }
+
+        // Fitness function do ASR-6 (Consistência): conclusão + recompensa + evento na mesma
+        // transação, e consumidor indisponível sem efeito sobre a conclusão. Isolado para que,
+        // se alguém quebrar a outbox (ex.: gravar o evento fora da transação), a falha apareça
+        // com nome próprio no Stage View. Os mesmos testes rodam de novo no `verify` abaixo.
+        stage('2b - CI - Consistência Transacional (Outbox, ASR-6)') {
+            steps {
+                sh 'mvn -B test -Dtest=AtomicidadeDaConclusaoIntegrationTest,OutboxDispatcherTest,EventoDeDominioTest'
+            }
+        }
+
         stage('2 - CI - Testes JUnit + JaCoCo') {
             steps {
                 sh 'mvn -B clean verify'

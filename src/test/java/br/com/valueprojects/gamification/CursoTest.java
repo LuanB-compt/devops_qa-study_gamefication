@@ -2,113 +2,136 @@ package br.com.valueprojects.gamification;
 
 import br.com.valueprojects.gamification.aluno.domain.Aluno;
 import br.com.valueprojects.gamification.aluno.dto.AlunoResponse;
-import br.com.valueprojects.gamification.aluno.entity.AlunoEntity;
-import br.com.valueprojects.gamification.aluno.service.AlunoService;
-import br.com.valueprojects.gamification.curso.entity.CursoEntity;
-import br.com.valueprojects.gamification.curso.repository.CursoRepository;
 import br.com.valueprojects.gamification.curso.service.CursoService;
+import br.com.valueprojects.gamification.curso.domain.CursoConcluido;
+import br.com.valueprojects.gamification.fake.FakeAlunoPort;
+import br.com.valueprojects.gamification.fake.FakeCursoPort;
+import br.com.valueprojects.gamification.fake.FakeEventoPublisherPort;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
-// Testes unitários (Mockito) da camada service - CursoService reaproveita
-// Aluno#concluirCurso(Curso, double) do domínio (cenário 5) para decidir o
-// delta de cursos; aqui validamos a orquestração com os repositórios e a
-// regra extra do case (12 cursos -> plano Premium + 3 moedas).
-@ExtendWith(MockitoExtension.class)
+// Caso de uso CursoService (cenário 5) sem Spring e sem banco: portas trocadas por
+// fakes em memória. O bônus de +3 e a promoção a Premium são regras de Aluno (domínio);
+// aqui se valida que o service orquestra e PERSISTE o resultado.
 public class CursoTest {
 
-    @Mock
-    private CursoRepository cursoRepository;
-
-    @Mock
-    private AlunoService alunoService;
-
-    @InjectMocks
+    private FakeAlunoPort alunos;
+    private FakeCursoPort cursos;
+    private FakeEventoPublisherPort eventos;
     private CursoService cursoService;
 
-    @Test
-    public void deveConcluirCursoExistenteSemBonusQuandoMediaNaoUltrapassaSete() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Gustavo");
-        CursoEntity curso = new CursoEntity("Java Básico");
-        when(alunoService.buscarOuCriar("Gustavo")).thenReturn(aluno);
-        when(cursoRepository.findByNome("Java Básico")).thenReturn(Optional.of(curso));
-        when(alunoService.paraResponse(aluno))
-                .thenReturn(new AlunoResponse(1L, "Gustavo", aluno.getCursosConcluidos(), 0, "BASICO"));
+    @BeforeEach
+    void montar() {
+        alunos = new FakeAlunoPort();
+        cursos = new FakeCursoPort();
+        eventos = new FakeEventoPublisherPort();
+        cursoService = new CursoService(cursos, alunos, eventos);
+    }
 
+    // ASR-6: cada conclusão registra exatamente UM evento, descrevendo o que o domínio decidiu.
+    @Test
+    public void deveRegistrarUmEventoPorConclusaoComOResultadoDoDominio() {
+        // When
+        cursoService.concluirCurso("Kleber", "Docker", 9.0);
+
+        // Then
+        assertEquals(1, eventos.publicados().size());
+        assertEquals(CursoConcluido.TIPO, eventos.publicados().get(0).tipo());
+        CursoConcluido evento = (CursoConcluido) eventos.publicados().get(0).payload();
+        assertEquals("Kleber", evento.alunoNome());
+        assertEquals("Docker", evento.cursoNome());
+        assertEquals(4, evento.cursosGanhos());
+        assertEquals(4, evento.cursosConcluidosTotal());
+    }
+
+    @Test
+    public void eventoDeveInformarPromocaoAPremium() {
+        alunos.salvar(new Aluno("Lia", 11, 0, Aluno.Plano.BASICO));
+
+        cursoService.concluirCurso("Lia", "Kubernetes", 6.0);
+
+        assertTrue(((CursoConcluido) eventos.publicados().get(0).payload()).virouPremium());
+    }
+
+    // Fato sem evento nunca acontece: se salvar o aluno falha, o evento nem é registrado.
+    @Test
+    public void naoDeveRegistrarEventoQuandoASalvaDoAlunoFalha() {
+        FakeAlunoPort quebrado = new FakeAlunoPort() {
+            @Override
+            public AlunoResponse salvar(Aluno aluno) {
+                throw new IllegalStateException("banco indisponível");
+            }
+        };
+        CursoService servico = new CursoService(cursos, quebrado, eventos);
+
+        assertThrows(IllegalStateException.class, () -> servico.concluirCurso("Marta", "Git", 8.0));
+
+        assertTrue(eventos.publicados().isEmpty());
+    }
+
+    @Test
+    public void deveConcluirCursoSemBonusQuandoMediaNaoUltrapassaSete() {
         // When
         AlunoResponse response = cursoService.concluirCurso("Gustavo", "Java Básico", 7.0);
 
         // Then (só o curso concluído, sem bônus)
-        assertEquals(1, aluno.getCursosConcluidos());
+        assertEquals(1, response.cursosConcluidos());
         assertEquals("BASICO", response.plano());
-        verify(cursoRepository, never()).save(any());
+        assertEquals(1, alunos.obter("Gustavo").getCursosConcluidos());
+        assertTrue(cursos.catalogo().contains("Java Básico"));
     }
 
     @Test
-    public void deveCriarCursoNovoEConcederBonusQuandoMediaAcimaDeSete() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Helena");
-        when(alunoService.buscarOuCriar("Helena")).thenReturn(aluno);
-        when(cursoRepository.findByNome("Docker")).thenReturn(Optional.empty());
-        when(cursoRepository.save(any(CursoEntity.class))).thenReturn(new CursoEntity("Docker"));
-        when(alunoService.paraResponse(aluno))
-                .thenReturn(new AlunoResponse(2L, "Helena", aluno.getCursosConcluidos(), 0, "BASICO"));
-
+    public void deveConcederBonusQuandoMediaAcimaDeSete() {
         // When
-        cursoService.concluirCurso("Helena", "Docker", 9.0);
+        AlunoResponse response = cursoService.concluirCurso("Helena", "Docker", 9.0);
 
         // Then (1 do curso + 3 de bônus pela média > 7)
-        assertEquals(4, aluno.getCursosConcluidos());
-        verify(cursoRepository).save(any(CursoEntity.class));
+        assertEquals(4, response.cursosConcluidos());
+        assertEquals(4, alunos.obter("Helena").getCursosConcluidos());
+    }
+
+    @Test
+    public void deveAcumularSobreOEstadoJaPersistidoDoAluno() {
+        // Given
+        cursoService.concluirCurso("Ivo", "A", 5.0);
+
+        // When
+        AlunoResponse response = cursoService.concluirCurso("Ivo", "B", 5.0);
+
+        // Then
+        assertEquals(2, response.cursosConcluidos());
     }
 
     @Test
     public void deveVirarPremiumEGanharMoedasAoAtingirDozeCursos() {
         // Given: aluno faltando 1 curso para os 12 necessários ao plano Premium
-        AlunoEntity aluno = new AlunoEntity("Igor");
-        aluno.setCursosConcluidos(11);
-        when(alunoService.buscarOuCriar("Igor")).thenReturn(aluno);
-        when(cursoRepository.findByNome("Kubernetes")).thenReturn(Optional.of(new CursoEntity("Kubernetes")));
-        when(alunoService.paraResponse(aluno))
-                .thenReturn(new AlunoResponse(3L, "Igor", aluno.getCursosConcluidos(), aluno.getMoedas(), "PREMIUM"));
+        alunos.salvar(new Aluno("Igor", 11, 0, Aluno.Plano.BASICO));
 
         // When (média <= 7, então só +1 curso, mas isso já fecha os 12)
-        cursoService.concluirCurso("Igor", "Kubernetes", 6.0);
+        AlunoResponse response = cursoService.concluirCurso("Igor", "Kubernetes", 6.0);
 
         // Then
-        assertEquals(12, aluno.getCursosConcluidos());
-        assertEquals(Aluno.Plano.PREMIUM, aluno.getPlano());
-        assertEquals(3, aluno.getMoedas());
+        assertEquals(12, response.cursosConcluidos());
+        assertEquals("PREMIUM", response.plano());
+        assertEquals(3, response.moedas());
     }
 
     @Test
-    public void naoDeveAlterarPlanoQuandoJaEhPremium() {
-        // Given: aluno já Premium, para cobrir o branch que evita processar de novo
-        AlunoEntity aluno = new AlunoEntity("Julia");
-        aluno.setCursosConcluidos(12);
-        aluno.setPlano(Aluno.Plano.PREMIUM);
-        aluno.setMoedas(3);
-        when(alunoService.buscarOuCriar("Julia")).thenReturn(aluno);
-        when(cursoRepository.findByNome("Terraform")).thenReturn(Optional.of(new CursoEntity("Terraform")));
-        when(alunoService.paraResponse(aluno))
-                .thenReturn(new AlunoResponse(4L, "Julia", aluno.getCursosConcluidos(), aluno.getMoedas(), "PREMIUM"));
+    public void naoDeveDarMoedasDeNovoQuandoJaEhPremium() {
+        // Given: aluno já Premium
+        alunos.salvar(new Aluno("Julia", 12, 3, Aluno.Plano.PREMIUM));
 
         // When
-        cursoService.concluirCurso("Julia", "Terraform", 5.0);
+        AlunoResponse response = cursoService.concluirCurso("Julia", "Terraform", 5.0);
 
         // Then (moedas não dobram, plano continua Premium)
-        assertEquals(3, aluno.getMoedas());
-        assertEquals(Aluno.Plano.PREMIUM, aluno.getPlano());
+        assertEquals(3, response.moedas());
+        assertEquals("PREMIUM", response.plano());
     }
 }

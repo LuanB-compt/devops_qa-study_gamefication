@@ -121,14 +121,14 @@ async function encerrar() {
         <tr>
           <th>#</th>
           <th>Aluno</th>
-          <th>Peso</th>
+          <th>Pontos</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="(item, indice) in ranking.contribuicoes" :key="indice">
           <td>{{ indice + 1 }}</td>
           <td>{{ item.alunoNome }}</td>
-          <td>{{ item.peso }}</td>
+          <td>{{ item.pontos }}</td>
         </tr>
       </tbody>
     </table>

@@ -48,6 +48,18 @@ public class AlunoEntity {
         this.plano = Aluno.Plano.BASICO;
     }
 
+    /** Tradução entity -> domínio (o domínio não conhece JPA). */
+    public Aluno paraDominio() {
+        return new Aluno(nome, cursosConcluidos, moedas, plano);
+    }
+
+    /** Tradução domínio -> entity: copia o estado já calculado pelo domínio. */
+    public void atualizarDe(Aluno aluno) {
+        this.cursosConcluidos = aluno.getCursosConcluidos();
+        this.moedas = aluno.getMoedas();
+        this.plano = aluno.getPlano();
+    }
+
     public Long getId() {
         return id;
     }
