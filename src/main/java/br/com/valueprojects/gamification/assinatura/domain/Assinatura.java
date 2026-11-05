@@ -36,6 +36,10 @@ public class Assinatura {
         return ativa;
     }
 
+    public boolean isPagamentoRealizado() {
+        return pagamentoRealizado;
+    }
+
     public void registrarPagamento() {
         pagamentoRealizado = true;
     }

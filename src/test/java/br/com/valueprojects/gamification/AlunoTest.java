@@ -17,6 +17,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import br.com.valueprojects.gamification.shared.RecursoNaoEncontradoException;
 import jakarta.persistence.EntityNotFoundException;
 import java.util.List;
 import java.util.Optional;
@@ -230,5 +231,94 @@ public class AlunoTest {
         assertEquals(4, response.cursosConcluidos());
         assertEquals(3, response.moedas());
         assertEquals("PREMIUM", response.plano());
+    }
+
+    // ---- Desafio 2: regra de Premium agora vive no domínio ----
+
+    @Test
+    public void deveReidratarAlunoComEstadoPersistidoSemAplicarRegras() {
+        Aluno aluno = new Aluno("Sara", 12, 3, Aluno.Plano.PREMIUM);
+
+        assertEquals(12, aluno.getCursosConcluidos());
+        assertEquals(3, aluno.getMoedas());
+        assertEquals(Aluno.Plano.PREMIUM, aluno.getPlano());
+    }
+
+    @Test
+    public void deveVirarPremiumEGanharTresMoedasAoAtingirDozeCursos() {
+        Aluno aluno = new Aluno("Tito", 11, 0, Aluno.Plano.BASICO);
+
+        aluno.concluirCurso(new Curso("K8s"), 6.0);
+
+        assertEquals(12, aluno.getCursosConcluidos());
+        assertEquals(Aluno.Plano.PREMIUM, aluno.getPlano());
+        assertEquals(3, aluno.getMoedas());
+    }
+
+    @Test
+    public void naoDeveDarMoedasDeNovoNemRebaixarQuandoJaEhPremium() {
+        Aluno aluno = new Aluno("Ugo", 12, 3, Aluno.Plano.PREMIUM);
+
+        aluno.concluirCurso(new Curso("Terraform"), 5.0);
+
+        assertEquals(3, aluno.getMoedas());
+        assertEquals(Aluno.Plano.PREMIUM, aluno.getPlano());
+    }
+
+    @Test
+    public void naoDeveVirarPremiumAbaixoDeDozeCursos() {
+        Aluno aluno = new Aluno("Vera", 10, 0, Aluno.Plano.BASICO);
+
+        aluno.concluirCurso(new Curso("Git"), 5.0);
+
+        assertEquals(Aluno.Plano.BASICO, aluno.getPlano());
+        assertEquals(0, aluno.getMoedas());
+    }
+
+    // ---- Porta AlunoPort implementada pelo AlunoService ----
+
+    @Test
+    public void deveObterOuCriarAlunoComoObjetoDeDominio() {
+        AlunoEntity entity = new AlunoEntity("Wanda");
+        entity.setCursosConcluidos(5);
+        when(alunoRepository.findByNome("Wanda")).thenReturn(Optional.of(entity));
+
+        Aluno aluno = alunoService.obterOuCriar("Wanda");
+
+        assertEquals("Wanda", aluno.getNome());
+        assertEquals(5, aluno.getCursosConcluidos());
+    }
+
+    @Test
+    public void deveObterAlunoExistenteComoDominioEFalharSeNaoExistir() {
+        when(alunoRepository.findByNome("Xico")).thenReturn(Optional.of(new AlunoEntity("Xico")));
+        when(alunoRepository.findByNome("Fantasma")).thenReturn(Optional.empty());
+
+        assertEquals("Xico", alunoService.obter("Xico").getNome());
+        assertThrows(RecursoNaoEncontradoException.class, () -> alunoService.obter("Fantasma"));
+    }
+
+    @Test
+    public void deveSalvarEstadoDoDominioNaEntidadeExistente() {
+        AlunoEntity existente = new AlunoEntity("Yara");
+        when(alunoRepository.findByNome("Yara")).thenReturn(Optional.of(existente));
+        when(alunoRepository.save(any(AlunoEntity.class))).thenAnswer(i -> i.getArgument(0));
+
+        AlunoResponse response = alunoService.salvar(new Aluno("Yara", 12, 3, Aluno.Plano.PREMIUM));
+
+        assertEquals(12, existente.getCursosConcluidos());
+        assertEquals(3, response.moedas());
+        assertEquals("PREMIUM", response.plano());
+    }
+
+    @Test
+    public void deveCriarEntidadeAoSalvarAlunoAindaInexistente() {
+        when(alunoRepository.findByNome("Zeca")).thenReturn(Optional.empty());
+        when(alunoRepository.save(any(AlunoEntity.class))).thenAnswer(i -> i.getArgument(0));
+
+        AlunoResponse response = alunoService.salvar(new Aluno("Zeca", 2, 0, Aluno.Plano.BASICO));
+
+        assertEquals("Zeca", response.nome());
+        assertEquals(2, response.cursosConcluidos());
     }
 }

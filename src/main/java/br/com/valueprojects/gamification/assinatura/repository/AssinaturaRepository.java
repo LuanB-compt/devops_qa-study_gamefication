@@ -9,4 +9,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AssinaturaRepository extends JpaRepository<AssinaturaEntity, Long> {
 
     Optional<AssinaturaEntity> findByAluno(AlunoEntity aluno);
+
+    Optional<AssinaturaEntity> findByAlunoNome(String nome);
 }

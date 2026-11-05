@@ -1,35 +1,22 @@
 package br.com.valueprojects.gamification;
 
 import br.com.valueprojects.gamification.aluno.domain.Aluno;
-import br.com.valueprojects.gamification.aluno.entity.AlunoEntity;
-import br.com.valueprojects.gamification.aluno.service.AlunoService;
 import br.com.valueprojects.gamification.assinatura.domain.Assinatura;
 import br.com.valueprojects.gamification.assinatura.dto.AssinaturaResponse;
-import br.com.valueprojects.gamification.assinatura.entity.AssinaturaEntity;
-import br.com.valueprojects.gamification.assinatura.repository.AssinaturaRepository;
 import br.com.valueprojects.gamification.assinatura.service.AssinaturaService;
+import br.com.valueprojects.gamification.fake.FakeAssinaturaPort;
+import br.com.valueprojects.gamification.shared.RecursoNaoEncontradoException;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
-import jakarta.persistence.EntityNotFoundException;
-import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
-// RED - TDD
-// Testes unitários (Mockito) da camada service
-// Assinatura do domínio (cenário 2) a partir do estado persistido
-// para decidir se a assinatura deve ser cancelada ao encerrar o mês.
-@ExtendWith(MockitoExtension.class)
+// Domínio de Assinatura (cenário 2) + caso de uso AssinaturaService com a porta
+// trocada por um fake em memória (sem Spring, sem banco, sem Mockito).
 public class AssinaturaTest {
 
     // Cenário 2: Dada uma mensalidade não paga e o aluno está ativo, quando
@@ -57,12 +44,14 @@ public class AssinaturaTest {
         Aluno aluno = new Aluno("Eduardo");
         Assinatura assinatura = new Assinatura(aluno);
         assinatura.registrarPagamento();
+        assertTrue(assinatura.isPagamentoRealizado());
 
         // When
         assinatura.encerrarMes();
 
-        // Then
+        // Then (e o pagamento é "zerado" para o mês seguinte)
         assertTrue(assinatura.isAtiva());
+        assertFalse(assinatura.isPagamentoRealizado());
     }
 
     // BLUE - cobertura: getAluno() expõe o aluno vinculado à assinatura.
@@ -93,7 +82,7 @@ public class AssinaturaTest {
         assertFalse(assinatura.isAtiva());
     }
 
-    // BLUE - cobertura: construtor de reidratação usado pelo service para
+    // BLUE - cobertura: construtor de reidratação usado pelo adapter para
     // reconstruir o estado já persistido de uma assinatura.
     @Test
     public void deveReidratarAssinaturaComEstadoJaPersistido() {
@@ -104,122 +93,76 @@ public class AssinaturaTest {
         // Then
         assertEquals(aluno, assinatura.getAluno());
         assertFalse(assinatura.isAtiva());
+        assertTrue(assinatura.isPagamentoRealizado());
     }
 
-    @Mock
-    private AssinaturaRepository assinaturaRepository;
+    // ---- Caso de uso (application service) com fake em memória ----
 
-    @Mock
-    private AlunoService alunoService;
-
-    @InjectMocks
     private AssinaturaService assinaturaService;
 
-    @Test
-    public void deveRetornarAssinaturaExistenteAoCriarParaAlunoJaAssinante() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Karla");
-        AssinaturaEntity existente = new AssinaturaEntity(aluno);
-        when(alunoService.buscarOuCriar("Karla")).thenReturn(aluno);
-        when(assinaturaRepository.findByAluno(aluno)).thenReturn(Optional.of(existente));
-
-        // When
-        AssinaturaResponse response = assinaturaService.criar("Karla");
-
-        // Then
-        assertTrue(response.ativa());
-        verify(assinaturaRepository, never()).save(any());
+    @BeforeEach
+    void montar() {
+        assinaturaService = new AssinaturaService(new FakeAssinaturaPort());
     }
 
     @Test
     public void deveCriarNovaAssinaturaAtivaQuandoAlunoAindaNaoTemUma() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Leo");
-        when(alunoService.buscarOuCriar("Leo")).thenReturn(aluno);
-        when(assinaturaRepository.findByAluno(aluno)).thenReturn(Optional.empty());
-        when(assinaturaRepository.save(any(AssinaturaEntity.class))).thenReturn(new AssinaturaEntity(aluno));
-
-        // When
         AssinaturaResponse response = assinaturaService.criar("Leo");
 
-        // Then
         assertEquals("Leo", response.alunoNome());
         assertTrue(response.ativa());
         assertFalse(response.pagamentoRealizado());
+        assertEquals(response, assinaturaService.consultar("Leo"));
     }
 
     @Test
-    public void deveRegistrarPagamentoDaAssinatura() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Marcia");
-        AssinaturaEntity entity = new AssinaturaEntity(aluno);
-        when(alunoService.buscarPorNome("Marcia")).thenReturn(aluno);
-        when(assinaturaRepository.findByAluno(aluno)).thenReturn(Optional.of(entity));
+    public void deveManterAssinaturaExistenteAoCriarParaAlunoJaAssinante() {
+        // Given (assinatura já paga)
+        assinaturaService.criar("Karla");
+        assinaturaService.registrarPagamento("Karla");
 
         // When
-        AssinaturaResponse response = assinaturaService.registrarPagamento("Marcia");
+        AssinaturaResponse response = assinaturaService.criar("Karla");
 
-        // Then
+        // Then (não recria nem zera o estado)
         assertTrue(response.pagamentoRealizado());
     }
 
-    // Cenário 2: mensalidade não paga e aluno ativo -> assinatura cancelada ao encerrar o mês.
     @Test
-    public void deveCancelarAssinaturaAoEncerrarMesSemPagamento() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Nadia");
-        AssinaturaEntity entity = new AssinaturaEntity(aluno); // ativa=true, pagamentoRealizado=false
-        when(alunoService.buscarPorNome("Nadia")).thenReturn(aluno);
-        when(assinaturaRepository.findByAluno(aluno)).thenReturn(Optional.of(entity));
+    public void deveRegistrarPagamentoEPersistir() {
+        assinaturaService.criar("Marcia");
 
-        // When
-        AssinaturaResponse response = assinaturaService.encerrarMes("Nadia");
+        AssinaturaResponse response = assinaturaService.registrarPagamento("Marcia");
 
-        // Then
-        assertFalse(response.ativa());
-        assertFalse(response.pagamentoRealizado());
+        assertTrue(response.pagamentoRealizado());
+        assertTrue(assinaturaService.consultar("Marcia").pagamentoRealizado());
     }
 
     @Test
-    public void naoDeveCancelarAssinaturaAoEncerrarMesComPagamentoRealizado() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Otavio");
-        AssinaturaEntity entity = new AssinaturaEntity(aluno);
-        entity.setPagamentoRealizado(true);
-        when(alunoService.buscarPorNome("Otavio")).thenReturn(aluno);
-        when(assinaturaRepository.findByAluno(aluno)).thenReturn(Optional.of(entity));
+    public void deveCancelarERegistrarNoEncerramentoDoMesSemPagamento() {
+        assinaturaService.criar("Nadia");
 
-        // When
+        AssinaturaResponse response = assinaturaService.encerrarMes("Nadia");
+
+        assertFalse(response.ativa());
+        assertFalse(assinaturaService.consultar("Nadia").ativa());
+    }
+
+    @Test
+    public void deveManterAtivaEZerarPagamentoNoEncerramentoDoMesComPagamento() {
+        assinaturaService.criar("Otavio");
+        assinaturaService.registrarPagamento("Otavio");
+
         AssinaturaResponse response = assinaturaService.encerrarMes("Otavio");
 
-        // Then
         assertTrue(response.ativa());
         assertFalse(response.pagamentoRealizado());
     }
 
     @Test
-    public void deveConsultarAssinaturaExistente() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Paulo");
-        AssinaturaEntity entity = new AssinaturaEntity(aluno);
-        when(alunoService.buscarPorNome("Paulo")).thenReturn(aluno);
-        when(assinaturaRepository.findByAluno(aluno)).thenReturn(Optional.of(entity));
-
-        // When
-        AssinaturaResponse response = assinaturaService.consultar("Paulo");
-
-        // Then
-        assertEquals("Paulo", response.alunoNome());
-    }
-
-    @Test
-    public void deveLancarExcecaoQuandoAssinaturaNaoEncontradaParaOAluno() {
-        // Given
-        AlunoEntity aluno = new AlunoEntity("Quenia");
-        when(alunoService.buscarPorNome("Quenia")).thenReturn(aluno);
-        when(assinaturaRepository.findByAluno(aluno)).thenReturn(Optional.empty());
-
-        // When / Then
-        assertThrows(EntityNotFoundException.class, () -> assinaturaService.consultar("Quenia"));
+    public void deveLancarExcecaoNeutraQuandoAssinaturaNaoEncontrada() {
+        assertThrows(RecursoNaoEncontradoException.class, () -> assinaturaService.consultar("Quenia"));
+        assertThrows(RecursoNaoEncontradoException.class, () -> assinaturaService.registrarPagamento("Quenia"));
+        assertThrows(RecursoNaoEncontradoException.class, () -> assinaturaService.encerrarMes("Quenia"));
     }
 }

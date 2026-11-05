@@ -1,44 +1,70 @@
 package br.com.valueprojects.gamification.contribuicao.domain;
 
 import br.com.valueprojects.gamification.aluno.domain.Aluno;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 
 /**
- * Acumula as {@link Contribuicao}s de um mês (equivalente ao "Jogo" do domínio
- * de referência). Atende os cenários:
- * - Cenário 1: apura quem tem mais contribuições e concede um curso ao vencedor.
- * - Cenário 3: em caso de empate, o aluno do mês é escolhido por sorteio.
- * - Cenário 4: ignora o segundo registro de contribuição do mesmo aluno na mesma rodada.
+ * Agregado do mês de contribuições (equivalente ao "Jogo" do domínio de
+ * referência). Concentra TODAS as regras do mês, para que mudar uma regra
+ * altere só esta classe (ASR-2):
+ * <ul>
+ *   <li>Cenário 4: ignora contribuição consecutiva do mesmo aluno;</li>
+ *   <li>ranking = soma dos pesos por aluno, em ordem decrescente;</li>
+ *   <li>Cenário 1: o mais pontuado ganha um curso ao encerrar o mês;</li>
+ *   <li>Cenário 3: empate no topo é resolvido por sorteio;</li>
+ *   <li>mês encerrado é imutável e só é apurado uma vez (idempotência).</li>
+ * </ul>
+ * É Java puro: sem Spring, JPA ou banco.
  */
 public class MesDeContribuicoes {
 
-    private String descricao;
-    private List<Contribuicao> contribuicoes;
+    private final String descricao;
+    private final List<Contribuicao> contribuicoes;
+    private final Sorteador sorteador;
+    private boolean encerrado;
+    private Aluno vencedor;
 
     public MesDeContribuicoes(String descricao) {
+        this(descricao, Sorteador.aleatorio());
+    }
+
+    public MesDeContribuicoes(String descricao, Sorteador sorteador) {
         this.descricao = descricao;
         this.contribuicoes = new ArrayList<>();
+        this.sorteador = sorteador;
     }
 
     /**
-     * Cenário 4: "Dado um jogo acontecendo e um Participante válido, quando notar
-     * dois ou mais resultados deste participante, então o segundo resultado deve
-     * ser ignorado".
+     * Reconstrói um mês já persistido SEM reaplicar as regras de {@link #registrar}.
+     * Reidratar via {@code registrar()} reavaliaria o histórico com a regra
+     * vigente: se a regra de duplicidade mudasse, contribuições antigas já
+     * gravadas seriam descartadas silenciosamente.
      */
-    public void registrar(Contribuicao contribuicao) {
-        if (contribuicoes.isEmpty()
-                || !contribuicoes.get(ultimaContribuicaoVista()).getAluno().equals(contribuicao.getAluno())) {
-            contribuicoes.add(contribuicao);
-        }
+    public static MesDeContribuicoes restaurar(String descricao, List<Contribuicao> contribuicoes,
+            boolean encerrado, Aluno vencedor, Sorteador sorteador) {
+        MesDeContribuicoes mes = new MesDeContribuicoes(descricao, sorteador);
+        mes.contribuicoes.addAll(contribuicoes);
+        mes.encerrado = encerrado;
+        mes.vencedor = vencedor;
+        return mes;
     }
 
-    private int ultimaContribuicaoVista() {
-        return contribuicoes.size() - 1;
+    public String getDescricao() {
+        return descricao;
+    }
+
+    public boolean isEncerrado() {
+        return encerrado;
+    }
+
+    /** Vencedor gravado na apuração; nulo se o mês está aberto ou fechou sem contribuições. */
+    public Aluno getVencedor() {
+        return vencedor;
     }
 
     public List<Contribuicao> getContribuicoes() {
@@ -46,42 +72,73 @@ public class MesDeContribuicoes {
     }
 
     /**
-     * Cenário 3: "Dado um empate em contribuições de alunos, quando o mês encerra,
-     * então o aluno escolhido do mês será sorteado".
+     * Cenário 4: o segundo resultado consecutivo do mesmo aluno é ignorado.
+     * Mês encerrado não aceita nada (senão o vencedor gravado ficaria defasado).
+     *
+     * @return {@code true} se a contribuição foi aceita
      */
-    public Aluno apurarVencedor() {
-        if (contribuicoes.isEmpty()) {
-            return null;
+    public boolean registrar(Contribuicao contribuicao) {
+        if (encerrado || repeteUltimoAluno(contribuicao)) {
+            return false;
         }
+        contribuicoes.add(contribuicao);
+        return true;
+    }
 
-        Map<Aluno, Integer> contagemPorAluno = new LinkedHashMap<>();
-        for (Contribuicao contribuicao : contribuicoes) {
-            contagemPorAluno.merge(contribuicao.getAluno(), 1, Integer::sum);
-        }
+    private boolean repeteUltimoAluno(Contribuicao contribuicao) {
+        return !contribuicoes.isEmpty()
+                && contribuicoes.get(contribuicoes.size() - 1).getAluno().equals(contribuicao.getAluno());
+    }
 
-        int maiorContagem = Collections.max(contagemPorAluno.values());
-        List<Aluno> candidatos = new ArrayList<>();
-        for (Map.Entry<Aluno, Integer> entrada : contagemPorAluno.entrySet()) {
-            if (entrada.getValue() == maiorContagem) {
-                candidatos.add(entrada.getKey());
-            }
-        }
-
-        if (candidatos.size() == 1) {
-            return candidatos.get(0);
-        }
-        return candidatos.get(new Random().nextInt(candidatos.size()));
+    /** Soma de pesos por aluno, em ordem decrescente de pontos (estável: empate mantém a ordem de chegada). */
+    public List<PosicaoRanking> ranking() {
+        return pontuacaoOrdenada().stream()
+                .map(e -> new PosicaoRanking(e.getKey(), e.getValue().doubleValue()))
+                .toList();
     }
 
     /**
-     * Cenário 1: "Dado o aluno com mais contribuições, quando encerra o mês,
-     * então o Aluno ganha um curso". Apura o vencedor e concede o curso a ele.
+     * Cenário 3: entre os alunos empatados no topo, o vencedor é sorteado.
+     * Pontos são somados em {@link BigDecimal} para que 0,1 + 0,2 empate com 0,3.
+     */
+    public Aluno apurarVencedor() {
+        List<Map.Entry<Aluno, BigDecimal>> ordenada = pontuacaoOrdenada();
+        if (ordenada.isEmpty()) {
+            return null;
+        }
+        BigDecimal maior = ordenada.get(0).getValue();
+        List<Aluno> candidatos = ordenada.stream()
+                .filter(e -> e.getValue().compareTo(maior) == 0)
+                .map(Map.Entry::getKey)
+                .toList();
+        return candidatos.size() == 1 ? candidatos.get(0) : candidatos.get(sorteador.sortear(candidatos.size()));
+    }
+
+    /**
+     * Cenário 1: apura e concede o curso ao vencedor. Idempotente: se o mês já
+     * foi encerrado, devolve o vencedor gravado sem sortear nem conceder de novo.
      */
     public Aluno encerrar() {
-        Aluno vencedor = apurarVencedor();
-        if (vencedor != null) {
-            vencedor.ganharCurso();
+        if (encerrado) {
+            return vencedor;
         }
-        return vencedor;
+        Aluno apurado = apurarVencedor();
+        if (apurado != null) {
+            apurado.ganharCurso();
+        }
+        this.vencedor = apurado;
+        this.encerrado = true;
+        return apurado;
+    }
+
+    private List<Map.Entry<Aluno, BigDecimal>> pontuacaoOrdenada() {
+        Map<Aluno, BigDecimal> pontos = new LinkedHashMap<>();
+        for (Contribuicao c : contribuicoes) {
+            pontos.merge(c.getAluno(), BigDecimal.valueOf(c.getPeso()), BigDecimal::add);
+        }
+        // sorted() em stream ordenado é estável: preserva a ordem de chegada nos empates.
+        return pontos.entrySet().stream()
+                .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                .toList();
     }
 }

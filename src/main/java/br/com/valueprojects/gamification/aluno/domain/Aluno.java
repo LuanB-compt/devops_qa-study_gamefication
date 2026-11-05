@@ -25,11 +25,19 @@ public class Aluno {
     private int moedas;
     private Plano plano;
 
+    private static final int CURSOS_PARA_PREMIUM = 12;
+    private static final int MOEDAS_AO_VIRAR_PREMIUM = 3;
+
     public Aluno(String nome) {
+        this(nome, 0, 0, Plano.BASICO);
+    }
+
+    /** Reidratação: reconstrói o aluno a partir do estado persistido, sem aplicar regras. */
+    public Aluno(String nome, int cursosConcluidos, int moedas, Plano plano) {
         this.nome = nome;
-        this.cursosConcluidos = 0;
-        this.moedas = 0;
-        this.plano = Plano.BASICO;
+        this.cursosConcluidos = cursosConcluidos;
+        this.moedas = moedas;
+        this.plano = plano;
     }
 
     public String getNome() {
@@ -64,6 +72,19 @@ public class Aluno {
         cursosConcluidos++;
         if (media > 7) {
             cursosConcluidos += 3;
+        }
+        promoverSeAtingiuDozeCursos();
+    }
+
+    /**
+     * Regra do case: ao acumular 12 cursos o aluno vira Premium e ganha 3 moedas.
+     * Antes vivia em CursoService; no domínio, uma mudança de regra não toca o caso de uso.
+     * Só é avaliada na conclusão de curso (comportamento preservado da AC1).
+     */
+    private void promoverSeAtingiuDozeCursos() {
+        if (plano == Plano.BASICO && cursosConcluidos >= CURSOS_PARA_PREMIUM) {
+            plano = Plano.PREMIUM;
+            moedas += MOEDAS_AO_VIRAR_PREMIUM;
         }
     }
 

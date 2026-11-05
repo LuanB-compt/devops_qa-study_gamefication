@@ -28,11 +28,11 @@ public class ArquiteturaTest {
     private static final String BASE = "br.com.valueprojects.gamification.";
 
     /**
-     * DÍVIDA CONHECIDA (aceita nesta decisão, "manter a arquitetura como está"):
-     * {@code AlunoService} devolve {@code AlunoEntity}, e curso/assinatura/contribuicao
-     * a usam diretamente (e por associação JPA). Qualquer OUTRA entidade ou repositório
-     * cruzando módulos reprova o build. Para quitar: AlunoService passar a devolver
-     * o domínio/ID, e esta lista ficar vazia.
+     * DÍVIDA CONHECIDA (quitada em parte no Desafio 2): os services de
+     * curso/assinatura/contribuicao já não tocam em {@code AlunoEntity} (regras 4 e 5),
+     * mas os adapters JPA e as associações JPA desses módulos ainda dependem dela.
+     * Qualquer OUTRA entidade ou repositório cruzando módulos reprova o build. Para
+     * quitar: trocar as associações por ID do aluno, e esta lista ficar vazia.
      */
     private static final Set<String> DIVIDA_CONHECIDA = Set.of(BASE + "aluno.entity.AlunoEntity");
 
@@ -55,6 +55,34 @@ public class ArquiteturaTest {
     @ArchTest
     static final ArchRule entity_e_repository_sao_privados_do_modulo = classes()
             .should(naoAcessarEntityOuRepositoryDeOutroModulo());
+
+    // 4) ASR-2 (Desafio 2): application services de curso/assinatura/contribuicao são
+    //    orquestração pura. Não conhecem JPA, Spring Data, Entity nem Repository: falam
+    //    com a persistência só por PORTAS (interfaces no próprio pacote service, em
+    //    termos de domínio) cujos adapters JPA ficam no pacote repository.
+    //    O módulo aluno fica de fora: não faz parte do escopo desta decisão.
+    @ArchTest
+    static final ArchRule application_services_nao_conhecem_persistencia = noClasses()
+            .that().resideInAnyPackage(
+                    BASE + "curso.service..", BASE + "assinatura.service..", BASE + "contribuicao.service..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "jakarta.persistence..", "org.springframework.data..", "..entity..", "..repository..");
+
+    // 5) Os mesmos services acessam o aluno só pela porta (AlunoPort), nunca pelo
+    //    AlunoService concreto (que devolve AlunoEntity: a dívida que sobra fica nos adapters).
+    @ArchTest
+    static final ArchRule application_services_acessam_aluno_so_pela_porta = noClasses()
+            .that().resideInAnyPackage(
+                    BASE + "curso.service..", BASE + "assinatura.service..", BASE + "contribuicao.service..")
+            .should().dependOnClassesThat().haveFullyQualifiedName(BASE + "aluno.service.AlunoService");
+
+    // 6) Portas são interfaces do lado da aplicação: ficam no pacote service, nunca junto
+    //    do adapter. allowEmptyShould(false) reprova se nenhuma porta for encontrada.
+    @ArchTest
+    static final ArchRule portas_ficam_no_pacote_service = classes()
+            .that().haveSimpleNameEndingWith("Port").and().areInterfaces()
+            .should().resideInAPackage("..service..")
+            .allowEmptyShould(false);
 
     // Atenção: a condição já registra a VIOLAÇÃO; por isso é usada com classes() e não
     // noClasses() (a dupla negação deixaria a regra vácua — foi pego por teste de mutação).

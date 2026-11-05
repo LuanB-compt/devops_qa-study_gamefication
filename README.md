@@ -66,7 +66,7 @@ Cenários elaborados, derivados da US #1.
 - **Spring Boot 3.3.3** (`spring-boot-starter-web`, `spring-boot-starter-data-jpa`)
 - **Maven** (build e gerenciamento de dependências)
 - **JUnit 5** (Jupiter, via `spring-boot-starter-test`) — testes unitários de domínio e de service, escritos no estilo Given/When/Then dos cenários BDD
-- **JaCoCo 0.8.12** — cobertura de testes (100% nas classes de `domain` e 79% de cobertura total)
+- **JaCoCo 0.8.12** — cobertura de testes (100% nas classes de `domain` e 89,3% de cobertura total)
 - **H2** — dependência runtime mantida no `pom.xml` (sem uso nos perfis atuais)
 - **PostgreSQL 16** — banco relacional de todos os perfis (dev, homol, prod)
 - **Docker / Docker Compose** — containerização da aplicação e orquestração (3 ambientes) com PostgreSQL, pgAdmin, Prometheus e Grafana
@@ -83,8 +83,8 @@ Arquitetura modular por domínio. Cada módulo em `br.com.valueprojects.gamifica
 - `domain` — regras de negócio puras (sem Spring/JPA)
 - `vo` — value objects
 - `entity` — entidades JPA
-- `repository` — interfaces `JpaRepository`
-- `service` — orquestra repositório + regras de `domain`
+- `repository` — interfaces `JpaRepository` e adapters JPA das portas
+- `service` — application services (orquestram as regras de `domain`) e portas de persistência
 - `dto` — objetos de requisição/resposta da API
 - `controller` — endpoints REST
 
@@ -94,9 +94,11 @@ Módulos:
 - `curso` — conclusão de cursos (`entity`, `repository`, `service`, `controller`, `dto`); depende de `aluno`
 - `assinatura` — `domain/Assinatura` + camadas de persistência/API; depende de `aluno`
 - `contribuicao` — `domain/Contribuicao`, `domain/MesDeContribuicoes` + camadas de persistência/API (ranking e vencedor); depende de `aluno`
-- `shared` — componentes transversais (`ApiExceptionHandler`)
+- `shared` — componentes transversais (`ApiExceptionHandler`, `RecursoNaoEncontradoException`)
 
-**Regras de arquitetura verificadas no build** (`ArquiteturaTest`, ArchUnit; estágio 2a do Jenkins): módulos sem ciclos; `domain` sem Spring/JPA; `entity`/`repository` de um módulo não são acessados por outro. Exceção conhecida e documentada no teste: `AlunoEntity` (dívida técnica).
+**Regras de arquitetura verificadas no build** (`ArquiteturaTest`, ArchUnit; estágio 2a do Jenkins): módulos sem ciclos; `domain` sem Spring/JPA; `entity`/`repository` de um módulo não são acessados por outro; services de `curso`, `assinatura` e `contribuicao` não conhecem JPA e acessam o aluno só pela `AlunoPort`; portas ficam no pacote `service`. Exceção conhecida e documentada no teste: `AlunoEntity` (dívida técnica, hoje restrita aos adapters e às associações JPA).
+
+As decisões arquiteturais, a matriz de ASRs e as evidências estão em [docs/arquitetura](docs/arquitetura/README.md).
 
 > Banco com `ddl-auto=validate` (prod): antes do deploy, criar em `mes_de_contribuicoes` as colunas `encerrado boolean not null default false` e `vencedor_id bigint null references aluno(id)`.
 
@@ -124,8 +126,8 @@ SPA Vue 3 + Vite simples, criada apenas para testar e validar manualmente as fun
 | POST   | `/api/assinaturas/{alunoNome}/pagamento`       | Registra pagamento da mensalidade            |
 | POST   | `/api/assinaturas/{alunoNome}/encerrar`        | Encerra/cancela a assinatura                 |
 | POST   | `/api/meses/{descricao}/contribuicoes`         | Registra contribuição do aluno no mês        |
-| GET    | `/api/meses/{descricao}/ranking`               | Consulta ranking de contribuições do mês     |
-| POST   | `/api/meses/{descricao}/encerrar`              | Apura o vencedor do mês (com sorteio em empate). Idempotente: o mês é apurado uma única vez; chamadas seguintes devolvem o mesmo vencedor sem novo curso. Mês encerrado não aceita novas contribuições (409) |
+| GET    | `/api/meses/{descricao}/ranking`               | Consulta o ranking do mês: uma linha por aluno, com `pontos` (soma dos pesos), em ordem decrescente |
+| POST   | `/api/meses/{descricao}/encerrar`              | Apura o vencedor do mês pela soma dos pesos (com sorteio em empate). Idempotente: o mês é apurado uma única vez; chamadas seguintes devolvem o mesmo vencedor sem novo curso. Mês encerrado não aceita novas contribuições (409) |
 
 ## Como rodar os testes com cobertura
 

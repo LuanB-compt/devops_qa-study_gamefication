@@ -9,8 +9,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import br.com.valueprojects.gamification.aluno.repository.AlunoRepository;
 import br.com.valueprojects.gamification.aluno.service.AlunoService;
 import br.com.valueprojects.gamification.contribuicao.dto.VencedorResponse;
+import br.com.valueprojects.gamification.contribuicao.repository.MesDeContribuicoesJpaAdapter;
 import br.com.valueprojects.gamification.contribuicao.service.MesDeContribuicoesService;
-import jakarta.persistence.EntityNotFoundException;
+import br.com.valueprojects.gamification.shared.RecursoNaoEncontradoException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -33,7 +34,7 @@ import org.springframework.context.annotation.Import;
         "spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
         "spring.jpa.hibernate.ddl-auto=create-drop"
 })
-@Import({ MesDeContribuicoesService.class, AlunoService.class })
+@Import({ MesDeContribuicoesService.class, MesDeContribuicoesJpaAdapter.class, AlunoService.class })
 public class EncerramentoDoMesIntegrationTest {
 
     @Autowired
@@ -131,6 +132,6 @@ public class EncerramentoDoMesIntegrationTest {
 
     @Test
     public void deveFalharAoEncerrarMesInexistente() {
-        assertThrows(EntityNotFoundException.class, () -> service.encerrarMes("Mes/Inexistente"));
+        assertThrows(RecursoNaoEncontradoException.class, () -> service.encerrarMes("Mes/Inexistente"));
     }
 }
