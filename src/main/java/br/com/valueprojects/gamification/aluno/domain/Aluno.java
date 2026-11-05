@@ -68,24 +68,33 @@ public class Aluno {
      * Cenário 5: "Dado um aluno que finalizou um curso e está com a média acima
      * de 7, quando finalizar o curso, então esse aluno ganhará mais 3 cursos".
      */
-    public void concluirCurso(Curso curso, double media) {
+    public ConclusaoDeCurso concluirCurso(Curso curso, double media) {
+        int ganhos = 1;
         cursosConcluidos++;
-        if (media > 7) {
+        boolean bonus = media > 7;
+        if (bonus) {
             cursosConcluidos += 3;
+            ganhos += 3;
         }
-        promoverSeAtingiuDozeCursos();
+        boolean virouPremium = promoverSeAtingiuDozeCursos();
+        // Devolve o fato (ASR-6): o evento publicado descreve exatamente o que o domínio fez.
+        return new ConclusaoDeCurso(curso.getNome(), media, ganhos, bonus, virouPremium);
     }
 
     /**
      * Regra do case: ao acumular 12 cursos o aluno vira Premium e ganha 3 moedas.
      * Antes vivia em CursoService; no domínio, uma mudança de regra não toca o caso de uso.
      * Só é avaliada na conclusão de curso (comportamento preservado da AC1).
+     *
+     * @return se a promoção aconteceu agora
      */
-    private void promoverSeAtingiuDozeCursos() {
+    private boolean promoverSeAtingiuDozeCursos() {
         if (plano == Plano.BASICO && cursosConcluidos >= CURSOS_PARA_PREMIUM) {
             plano = Plano.PREMIUM;
             moedas += MOEDAS_AO_VIRAR_PREMIUM;
+            return true;
         }
+        return false;
     }
 
     @Override

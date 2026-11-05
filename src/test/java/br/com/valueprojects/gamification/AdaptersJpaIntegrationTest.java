@@ -13,8 +13,12 @@ import br.com.valueprojects.gamification.assinatura.service.AssinaturaService;
 import br.com.valueprojects.gamification.curso.repository.CursoJpaAdapter;
 import br.com.valueprojects.gamification.curso.repository.CursoRepository;
 import br.com.valueprojects.gamification.curso.service.CursoService;
+import br.com.valueprojects.gamification.evento.repository.EventoJpaAdapter;
+import br.com.valueprojects.gamification.evento.service.OutboxPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.ImportAutoConfiguration;
+import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.context.annotation.Import;
@@ -29,7 +33,8 @@ import org.springframework.context.annotation.Import;
         "spring.jpa.hibernate.ddl-auto=create-drop"
 })
 @Import({ AssinaturaService.class, AssinaturaJpaAdapter.class, CursoService.class, CursoJpaAdapter.class,
-        AlunoService.class })
+        AlunoService.class, OutboxPublisher.class, EventoJpaAdapter.class })
+@ImportAutoConfiguration(JacksonAutoConfiguration.class)
 public class AdaptersJpaIntegrationTest {
 
     @Autowired

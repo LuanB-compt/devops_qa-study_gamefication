@@ -84,6 +84,35 @@ public class ArquiteturaTest {
             .should().resideInAPackage("..service..")
             .allowEmptyShould(false);
 
+    // 7) ASR-6 (Desafio 4): os services dos módulos de eventos também são orquestração pura.
+    //    A outbox é acessada só pela EventoPort; o JPA fica no adapter do pacote repository.
+    @ArchTest
+    static final ArchRule services_de_evento_e_notificacao_nao_conhecem_persistencia = noClasses()
+            .that().resideInAnyPackage(BASE + "evento.service..", BASE + "notificacao.service..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    "jakarta.persistence..", "org.springframework.data..", "..entity..", "..repository..");
+
+    // 8) ASR-6: produtor e consumidor só se conhecem pelo contrato do evento. O módulo curso
+    //    NÃO conhece a notificação (por isso uma falha de e-mail não tem caminho de código até
+    //    a conclusão), e o módulo evento é neutro: não conhece quem publica nem quem consome.
+    @ArchTest
+    static final ArchRule curso_nao_conhece_o_consumidor_de_notificacao = noClasses()
+            .that().resideInAPackage(BASE + "curso..")
+            .should().dependOnClassesThat().resideInAPackage(BASE + "notificacao..");
+
+    @ArchTest
+    static final ArchRule modulo_evento_e_neutro = noClasses()
+            .that().resideInAPackage(BASE + "evento..")
+            .should().dependOnClassesThat().resideInAnyPackage(
+                    BASE + "curso..", BASE + "notificacao..", BASE + "aluno..");
+
+    // 9) ASR-6: o único jeito de um produtor registrar evento é a EventoPublisherPort
+    //    (transacional, MANDATORY). Ninguém fora do módulo evento toca na tabela outbox.
+    @ArchTest
+    static final ArchRule so_o_modulo_evento_acessa_a_outbox = noClasses()
+            .that().resideOutsideOfPackage(BASE + "evento..")
+            .should().dependOnClassesThat().resideInAnyPackage(BASE + "evento.entity..", BASE + "evento.repository..");
+
     // Atenção: a condição já registra a VIOLAÇÃO; por isso é usada com classes() e não
     // noClasses() (a dupla negação deixaria a regra vácua — foi pego por teste de mutação).
     private static ArchCondition<JavaClass> naoAcessarEntityOuRepositoryDeOutroModulo() {

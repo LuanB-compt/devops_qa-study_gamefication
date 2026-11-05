@@ -3,10 +3,13 @@ package br.com.valueprojects.gamification;
 import br.com.valueprojects.gamification.aluno.domain.Aluno;
 import br.com.valueprojects.gamification.aluno.dto.AlunoResponse;
 import br.com.valueprojects.gamification.curso.service.CursoService;
+import br.com.valueprojects.gamification.curso.domain.CursoConcluido;
 import br.com.valueprojects.gamification.fake.FakeAlunoPort;
 import br.com.valueprojects.gamification.fake.FakeCursoPort;
+import br.com.valueprojects.gamification.fake.FakeEventoPublisherPort;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -19,13 +22,56 @@ public class CursoTest {
 
     private FakeAlunoPort alunos;
     private FakeCursoPort cursos;
+    private FakeEventoPublisherPort eventos;
     private CursoService cursoService;
 
     @BeforeEach
     void montar() {
         alunos = new FakeAlunoPort();
         cursos = new FakeCursoPort();
-        cursoService = new CursoService(cursos, alunos);
+        eventos = new FakeEventoPublisherPort();
+        cursoService = new CursoService(cursos, alunos, eventos);
+    }
+
+    // ASR-6: cada conclusão registra exatamente UM evento, descrevendo o que o domínio decidiu.
+    @Test
+    public void deveRegistrarUmEventoPorConclusaoComOResultadoDoDominio() {
+        // When
+        cursoService.concluirCurso("Kleber", "Docker", 9.0);
+
+        // Then
+        assertEquals(1, eventos.publicados().size());
+        assertEquals(CursoConcluido.TIPO, eventos.publicados().get(0).tipo());
+        CursoConcluido evento = (CursoConcluido) eventos.publicados().get(0).payload();
+        assertEquals("Kleber", evento.alunoNome());
+        assertEquals("Docker", evento.cursoNome());
+        assertEquals(4, evento.cursosGanhos());
+        assertEquals(4, evento.cursosConcluidosTotal());
+    }
+
+    @Test
+    public void eventoDeveInformarPromocaoAPremium() {
+        alunos.salvar(new Aluno("Lia", 11, 0, Aluno.Plano.BASICO));
+
+        cursoService.concluirCurso("Lia", "Kubernetes", 6.0);
+
+        assertTrue(((CursoConcluido) eventos.publicados().get(0).payload()).virouPremium());
+    }
+
+    // Fato sem evento nunca acontece: se salvar o aluno falha, o evento nem é registrado.
+    @Test
+    public void naoDeveRegistrarEventoQuandoASalvaDoAlunoFalha() {
+        FakeAlunoPort quebrado = new FakeAlunoPort() {
+            @Override
+            public AlunoResponse salvar(Aluno aluno) {
+                throw new IllegalStateException("banco indisponível");
+            }
+        };
+        CursoService servico = new CursoService(cursos, quebrado, eventos);
+
+        assertThrows(IllegalStateException.class, () -> servico.concluirCurso("Marta", "Git", 8.0));
+
+        assertTrue(eventos.publicados().isEmpty());
     }
 
     @Test

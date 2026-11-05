@@ -33,6 +33,16 @@ pipeline {
             }
         }
 
+        // Fitness function do ASR-6 (Consistência): conclusão + recompensa + evento na mesma
+        // transação, e consumidor indisponível sem efeito sobre a conclusão. Isolado para que,
+        // se alguém quebrar a outbox (ex.: gravar o evento fora da transação), a falha apareça
+        // com nome próprio no Stage View. Os mesmos testes rodam de novo no `verify` abaixo.
+        stage('2b - CI - Consistência Transacional (Outbox, ASR-6)') {
+            steps {
+                sh 'mvn -B test -Dtest=AtomicidadeDaConclusaoIntegrationTest,OutboxDispatcherTest,EventoDeDominioTest'
+            }
+        }
+
         stage('2 - CI - Testes JUnit + JaCoCo') {
             steps {
                 sh 'mvn -B clean verify'

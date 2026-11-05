@@ -100,7 +100,7 @@ Módulos:
 
 As decisões arquiteturais, a matriz de ASRs e as evidências estão em [docs/arquitetura](docs/arquitetura/README.md).
 
-> Banco com `ddl-auto=validate` (prod): antes do deploy, criar em `mes_de_contribuicoes` as colunas `encerrado boolean not null default false` e `vencedor_id bigint null references aluno(id)`.
+> Banco com `ddl-auto=validate` (prod): antes do deploy, aplicar `scripts/sql/evento_outbox.sql` (tabela da outbox de eventos) e criar em `mes_de_contribuicoes` as colunas `encerrado boolean not null default false` e `vencedor_id bigint null references aluno(id)`.
 
 As classes de regra de negócio pura (`Aluno`, `Assinatura`, `Contribuicao`, `MesDeContribuicoes`) e o value object `Curso` são 100% cobertos por testes (fase BLUE do TDD).
 

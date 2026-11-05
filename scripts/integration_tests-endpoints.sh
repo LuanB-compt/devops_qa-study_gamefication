@@ -35,6 +35,18 @@ req "Conclui curso (media 8.5)"  POST /api/alunos/Luan/cursos '{"cursoNome":"Dev
 req "Actuator health"            GET  /actuator/health
 req "Actuator prometheus"        GET  /actuator/prometheus
 
+# Observabilidade da outbox (ASR-6): o backlog de eventos precisa estar exposto ao Prometheus.
+# Depois do "Conclui curso" acima há um evento; o gauge existe mesmo com a fila vazia.
+METRICS=$(curl -s "$BASE_URL/actuator/prometheus")
+for metrica in outbox_eventos_pendentes outbox_eventos_falhos; do
+  if echo "$METRICS" | grep -q "^$metrica"; then
+    echo "== Metrica $metrica exposta"
+  else
+    echo "FALHA: metrica $metrica ausente em /actuator/prometheus"
+    FAILED=1
+  fi
+done
+
 if [ "$FAILED" -ne 0 ]; then
   echo "Smoke test FALHOU."
   exit 1
